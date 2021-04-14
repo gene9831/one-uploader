@@ -2,6 +2,7 @@
 import json
 import os
 from dataclasses import dataclass, field
+from typing import List
 
 import msal
 
@@ -13,7 +14,7 @@ class OAuthSettings:
     app_id: str
     app_secret: str
     redirect: str
-    scopes: list[str] = field(  # scopes大小写敏感
+    scopes: List[str] = field(  # scopes大小写敏感
         default_factory=lambda: ['User.Read', 'Files.ReadWrite.All'])
     authority: str = 'https://login.microsoftonline.com/common'
 
