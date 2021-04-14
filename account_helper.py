@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from urllib.parse import unquote_plus
 
-import color_print
 from graph.auth import MSALAuth
+from utils import color_print
 
 
 class AccountHelper:

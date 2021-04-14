@@ -4,7 +4,8 @@ import os
 from dataclasses import dataclass, field
 
 import msal
-import color_print
+
+from utils import color_print
 
 
 @dataclass
