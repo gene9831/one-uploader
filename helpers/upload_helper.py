@@ -17,6 +17,8 @@ from graph import drive_api
 from graph.auth import MSALAuth
 from utils import color_print
 
+MAX_TITLE_LEN = 78
+
 
 @dataclasses.dataclass
 class UploadInfo:
@@ -94,15 +96,16 @@ class UploadHelper:
             self.msal_auth.oauth_settings.scopes, info.onedrive_account)
 
         with output(initial_len=4) as out_lines:
-            out_lines[1] = '                filename                ' \
-                           '|  size   |   per   |  speed  |   eta   '
-            out_lines[2] = '----------------------------------------' \
-                           '+---------+---------+---------+---------'
+            len_f_title = max(min(MAX_TITLE_LEN, len(info.filename)), 8)
+            out_lines[1] = ' filename%s ' % (' ' * (len_f_title - 8))
+            out_lines[1] += '|  size   |   per   |  speed  |   eta   '
+            out_lines[2] = '%s' % ('-' * (len_f_title + 2))
+            out_lines[2] += '+---------+---------+---------+---------'
 
             if info.size <= 4 * 1024 * 1024:
                 # 小于或等于4MB的文件直接上传
-                out_lines[0] = color_print.bs('上传小文件中，请勿强行停止')
                 out_lines[3] = progress_text(info)
+                out_lines[0] = color_print.bs('上传小文件中，请勿强行停止')
                 start = time.time()
                 with open(info.local_file_path, 'rb') as f:
                     resp_json = drive_api.put_content(
@@ -310,18 +313,18 @@ def cid_hash_file(path: str):
 
 
 def progress_text(info: UploadInfo):
-    name_max_len = 40
+    len_f_title = max(min(MAX_TITLE_LEN, len(info.filename)), 8)
     name = info.filename
-    if len(name) > name_max_len:
-        name = name[:name_max_len - 3] + '...'
+    if len(name) > MAX_TITLE_LEN:
+        name = name[:MAX_TITLE_LEN - 3] + '...'
     siz = human_size(info.size)
     per = '%.1f%%' % (info.finished / info.size * 100)
     spe = '%s/s' % human_size(info.speed)
     eta = human_sec(
         (info.size - info.finished) // info.speed) if info.speed > 0 else '---'
     eta = eta if info.finished != info.size else '0s'
-    progress = '{}{}| {}{} | {}{} | {}{} | {}{} '.format(
-        name, ' ' * (name_max_len - len(name)),
+    progress = ' {}{} | {}{} | {}{} | {}{} | {}{} '.format(
+        name, ' ' * (len_f_title - len(name)),
               ' ' * (7 - len(siz)), siz,
               ' ' * (7 - len(per)), per,
               ' ' * (7 - len(spe)), spe,
