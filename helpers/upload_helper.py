@@ -6,6 +6,7 @@ import json
 import math
 import os
 import signal
+import sys
 import time
 from typing import Optional
 
@@ -22,7 +23,7 @@ class UploadInfo:
     filename: str
     size: int
     local_file_path: str
-    sha1: str
+    cid_hash: str
     onedrive_dir_path: str
     onedrive_account: dict
     create_time: str
@@ -78,7 +79,7 @@ class UploadHelper:
             filename=os.path.split(local_file_path)[1],
             size=file_size,
             local_file_path=local_file_path,
-            sha1=get_sha1(local_file_path),
+            cid_hash=cid_hash_file(local_file_path),
             onedrive_dir_path=onedrive_dir_path,
             onedrive_account=account,
             create_time=utc_datetime_str()
@@ -94,7 +95,8 @@ class UploadHelper:
 
         if info.size <= 4 * 1024 * 1024:
             # 小于或等于4MB的文件直接上传
-            log_info(info)
+            log_progress_tile(info)
+            log_progress(info)
             start = time.time()
             with open(info.local_file_path, 'rb') as f:
                 resp_json = drive_api.put_content(
@@ -110,15 +112,15 @@ class UploadHelper:
                 info.finish_time = utc_datetime_str()
                 info.status = 'finished'
                 info.finished = info.size
-                log_info(info)
-                color_print.g('上传成功. 文件: %s' % info.filename)
+                log_progress(info)
+                color_print.g('\n上传成功. 文件: %s' % info.filename)
             else:
                 raise Exception(str(resp_json.get('error')))
             return
 
         # 处理超过4MB的大文件
 
-        info_cache = 'upload-info-{}.json'.format(info.sha1)
+        info_cache = 'upload-info-{}.json'.format(info.cid_hash)
         info_cache_path = os.path.join(app_config.CACHE_DIR, info_cache)
 
         if os.path.isfile(info_cache_path):
@@ -127,8 +129,6 @@ class UploadHelper:
         else:
             # 首次保存上传信息
             write_upload_info(info_cache_path, info)
-
-        log_info(info)
 
         # CTRL-C信号处理
         original_sigint_handler = signal.getsignal(signal.SIGINT)
@@ -140,9 +140,13 @@ class UploadHelper:
 
             signal.signal(signal.SIGINT, original_sigint_handler)
             self.stop_flag = True
-            color_print.y('接收到CTRL-C信号，正在停止上传。再次输入CTRL-C立即停止')
+            color_print.y('\n接收到CTRL-C信号，正在停止上传。再次输入CTRL-C立即停止')
 
         signal.signal(signal.SIGINT, sigint_handler)
+        color_print.b('按CTRL-C可停止上传')
+
+        log_progress_tile(info)
+        log_progress(info)
 
         size_mb = app_config.UPLOAD_CHUNK_SIZE
         chunk_size = 1024 * 1024 * size_mb
@@ -199,9 +203,8 @@ class UploadHelper:
 
                     headers = {
                         'Content-Length': str(chunk_size),
-                        'Content-Range': 'bytes {}-{}/{}'.format(chunk_start,
-                                                                 chunk_end,
-                                                                 info.size)
+                        'Content-Range': 'bytes {}-{}/{}'.format(
+                            chunk_start, chunk_end, info.size)
                     }
                     data = f.read(chunk_size)
 
@@ -234,22 +237,21 @@ class UploadHelper:
                     info.spend_time += spend_time
                     write_upload_info(info_cache_path, info)
 
-                    log_info(info)
+                    log_progress(info)
 
                     resp_json = resp.json()
                     if 'id' in resp_json.keys():
                         # 上传完成，删除上传信息缓存
                         os.remove(info_cache_path)
-                        color_print.g('上传成功. 文件: %s' % info.filename)
+                        color_print.g('\n上传成功. 文件: %s' % info.filename)
                         return
 
                     if self.stop_flag:
                         # 停止上传
-                        color_print.y('上传停止. 文件: %s' % info.filename)
+                        color_print.y('\n上传停止. 文件: %s' % info.filename)
                         return
         except Exception as e:
-            info.error = str(e)
-            write_upload_info(info_cache_path, info)
+            os.remove(info_cache_path)
             raise e
 
 
@@ -274,46 +276,49 @@ def utc_datetime_str():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def get_sha1(filename: str):
-    sha1 = hashlib.sha1()
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(65536)
-            if not data:
-                break
-            sha1.update(data)
+def cid_hash_file(path: str):
+    """
+    计算文件名为cid的hash值，算法来源：https://github.com/iambus/xunlei-lixian
+    :param path: 需要计算的本地文件路径
+    :return: 所给路径对应文件的cid值
+    """
+    h = hashlib.sha1()
+    size = os.path.getsize(path)
+    with open(path, 'rb') as stream:
+        if size < 0xF000:
+            h.update(stream.read())
+        else:
+            h.update(stream.read(0x5000))
+            stream.seek(size // 3)
+            h.update(stream.read(0x5000))
+            stream.seek(size - 0x5000)
+            h.update(stream.read(0x5000))
+    return h.hexdigest()
 
-    return sha1.hexdigest()
 
-
-def multi_spaces(num: int):
-    s = ''
-    for _ in range(num):
-        s += ' '
-    return s
-
-
-def log_info(info: UploadInfo):
-    out = 'filename: %s\n' % info.filename
-    out += '─────────┬───────────┬─────────┬─────────┬─────────\n'
+def log_progress_tile(info: UploadInfo):
+    out = 'filename: %s\n\n' % info.filename
     out += ' size    | finished  | per     | speed   | eta     \n'
     out += '---------+-----------+---------+---------+---------\n'
-    size = human_size(info.size)
-    finished = human_size(info.finished)
+    sys.stdout.write(out)
+
+
+def log_progress(info: UploadInfo):
+    siz = human_size(info.size)
+    fin = human_size(info.finished)
     per = '%.1f%%' % (info.finished / info.size * 100)
-    speed = '%s/s' % human_size(info.speed)
-    eta = human_sec(int(
-        (info.size - info.finished) / info.speed)) if info.speed > 0 else '---'
+    spe = '%s/s' % human_size(info.speed)
+    eta = human_sec(
+        (info.size - info.finished) // info.speed) if info.speed > 0 else '---'
     eta = eta if info.finished != info.size else '0s'
-    out += ' {}{}| {}{}| {}{}| {}{}| {}\n'.format(
-        size, multi_spaces(8 - len(size)),
-        finished, multi_spaces(10 - len(finished)),
-        per, multi_spaces(8 - len(per)),
-        speed, multi_spaces(8 - len(speed)),
-        eta
+    progress = '\r {}{}| {}{}| {}{}| {}{}| {}{}'.format(
+        siz, ' ' * (8 - len(siz)),
+        fin, ' ' * (10 - len(fin)),
+        per, ' ' * (8 - len(per)),
+        spe, ' ' * (8 - len(spe)),
+        eta, ' ' * (8 - len(eta))
     )
-    out += '─────────┴───────────┴─────────┴─────────┴─────────\n'
-    print(out, end='')
+    sys.stdout.write(progress)
 
 
 def human_size(n: int) -> str:
@@ -321,7 +326,7 @@ def human_size(n: int) -> str:
     if n < x:
         return '%dB' % n
     if n < 1000 * x:
-        return '%dK' % int(n / x)
+        return '%dK' % (n // x)
     x *= 1024
     if n < 1000 * x:
         return '%.1fM' % (n / x)
@@ -335,9 +340,9 @@ def human_sec(s: int) -> str:
     if s < x:
         return '%ds' % s
     if s < 60 * x:
-        return '%dm%ds' % (int(s / x), s % x)
+        return '%dm%ds' % (s // x, s % x)
     x *= 60
     if s < 24 * x:
-        return '%dh%dm' % (int(s / x), int((s % x) / 60))
+        return '%dh%dm' % (s // x, (s % x) // 60)
     x *= 24
-    return '>%dd' % int(s / x)
+    return '>%dd' % (s // x)

@@ -3,9 +3,9 @@ import argparse
 import os
 
 import app_config
-from account_helper import AccountHelper
+from helpers.account_helper import AccountHelper
 from graph.auth import OAuthSettings, MSALAuth
-from upload_helper import UploadHelper
+from helpers.upload_helper import UploadHelper
 
 
 def create_msal_auth():

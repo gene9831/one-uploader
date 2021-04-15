@@ -10,12 +10,6 @@ class AccountHelper:
         self.msal_auth = msal_auth
 
     def list(self, show_all=False):
-        def multi_spaces(num: int):
-            r = ''
-            for _ in range(num):
-                r += ' '
-            return r
-
         accounts = self.msal_auth.get_accounts()
 
         if show_all:
@@ -31,14 +25,14 @@ class AccountHelper:
             for a in accounts:
                 le = max(le, len(a[f]))
 
-            s_line += '%s%s  ' % (f.upper(), multi_spaces(le - len(f)))
+            s_line += '%s%s  ' % (f.upper(), ' ' * (le - len(f)))
             ls.append(le)
 
         print(s_line.strip())
         for i, a in enumerate(accounts, start=1):
-            line = '%d%s  ' % (i, multi_spaces(ls[0] - len(str(i))))
+            line = '%d%s  ' % (i, ' ' * (ls[0] - len(str(i))))
             for j, f in enumerate(fields, start=1):
-                line += '%s%s  ' % (a[f], multi_spaces(ls[j] - len(a[f])))
+                line += '%s%s  ' % (a[f], ' ' * (ls[j] - len(a[f])))
             print(line.strip())
 
         print('当前用户数: %d' % len(accounts))
