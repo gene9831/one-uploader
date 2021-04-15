@@ -94,14 +94,14 @@ class UploadHelper:
             self.msal_auth.oauth_settings.scopes, info.onedrive_account)
 
         with output(initial_len=4) as out_lines:
-            out_lines[0] = 'File: %s' % info.local_file_path
-            out_lines[1] = ' size    | finished  | per     |' \
-                           ' speed   | average | spend   | eta     '
-            out_lines[2] = '---------+-----------+---------+' \
-                           '---------+---------+---------+---------'
+            out_lines[1] = '                filename                ' \
+                           '|  size   |   per   |  speed  |   eta   '
+            out_lines[2] = '----------------------------------------' \
+                           '+---------+---------+---------+---------'
 
             if info.size <= 4 * 1024 * 1024:
                 # 小于或等于4MB的文件直接上传
+                out_lines[0] = color_print.bs('上传小文件中，请勿强行停止')
                 out_lines[3] = progress_text(info)
                 start = time.time()
                 with open(info.local_file_path, 'rb') as f:
@@ -154,7 +154,7 @@ class UploadHelper:
             signal.signal(signal.SIGINT, sigint_handler)
 
             out_lines[3] = progress_text(info)
-            out_lines.append(color_print.bs('按CTRL-C可停止上传'))
+            out_lines[0] = color_print.bs('上传大文件中，按CTRL-C可停止上传')
 
             size_mb = app_config.UPLOAD_CHUNK_SIZE
             chunk_size = 1024 * 1024 * size_mb
@@ -310,24 +310,22 @@ def cid_hash_file(path: str):
 
 
 def progress_text(info: UploadInfo):
+    name_max_len = 40
+    name = info.filename
+    if len(name) > name_max_len:
+        name = name[:name_max_len - 3] + '...'
     siz = human_size(info.size)
-    fin = human_size(info.finished)
     per = '%.1f%%' % (info.finished / info.size * 100)
     spe = '%s/s' % human_size(info.speed)
-    ave = '%s/s' % human_size(
-        int(info.finished / info.spend_time) if info.spend_time > 0 else 0)
-    spn = human_sec(int(info.spend_time))
     eta = human_sec(
         (info.size - info.finished) // info.speed) if info.speed > 0 else '---'
     eta = eta if info.finished != info.size else '0s'
-    progress = ' {}{}| {}{}| {}{}| {}{}| {}{}| {}{}| {}{}'.format(
-        siz, ' ' * (8 - len(siz)),
-        fin, ' ' * (10 - len(fin)),
-        per, ' ' * (8 - len(per)),
-        spe, ' ' * (8 - len(spe)),
-        ave, ' ' * (8 - len(ave)),
-        spn, ' ' * (8 - len(spn)),
-        eta, ' ' * (8 - len(eta))
+    progress = '{}{}| {}{} | {}{} | {}{} | {}{} '.format(
+        name, ' ' * (name_max_len - len(name)),
+              ' ' * (7 - len(siz)), siz,
+              ' ' * (7 - len(per)), per,
+              ' ' * (7 - len(spe)), spe,
+              ' ' * (7 - len(eta)), eta
     )
     return progress
 
