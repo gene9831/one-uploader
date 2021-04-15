@@ -118,6 +118,17 @@ class UploadHelper:
                 raise Exception(str(resp_json.get('error')))
             return
 
+        # CTRL-C信号处理
+        original_sigint_handler = signal.getsignal(signal.SIGINT)
+
+        def sigint_handler(signum, frame):
+            signal.signal(signal.SIGINT, original_sigint_handler)
+            self.stop_flag = True
+            color_print.y('\n接收到CTRL-C信号，正在停止上传并保存信息。再次输入CTRL-C立即停止')
+
+        signal.signal(signal.SIGINT, sigint_handler)
+        color_print.b('按CTRL-C可停止上传')
+
         # 处理超过4MB的大文件
 
         info_cache = 'upload-info-{}.json'.format(info.cid_hash)
@@ -129,21 +140,6 @@ class UploadHelper:
         else:
             # 首次保存上传信息
             write_upload_info(info_cache_path, info)
-
-        # CTRL-C信号处理
-        original_sigint_handler = signal.getsignal(signal.SIGINT)
-
-        def sigint_handler(signum, frame):
-            info.status = 'stopped'
-            info.speed = 0
-            write_upload_info(info_cache_path, info)
-
-            signal.signal(signal.SIGINT, original_sigint_handler)
-            self.stop_flag = True
-            color_print.y('\n接收到CTRL-C信号，正在停止上传。再次输入CTRL-C立即停止')
-
-        signal.signal(signal.SIGINT, sigint_handler)
-        color_print.b('按CTRL-C可停止上传')
 
         log_progress_tile(info)
         log_progress(info)
@@ -248,6 +244,9 @@ class UploadHelper:
 
                     if self.stop_flag:
                         # 停止上传
+                        info.status = 'stopped'
+                        info.speed = 0
+                        write_upload_info(info_cache_path, info)
                         color_print.y('\n上传停止. 文件: %s' % info.filename)
                         return
         except Exception as e:
@@ -298,8 +297,8 @@ def cid_hash_file(path: str):
 
 def log_progress_tile(info: UploadInfo):
     out = 'filename: %s\n\n' % info.filename
-    out += ' size    | finished  | per     | speed   | eta     \n'
-    out += '---------+-----------+---------+---------+---------\n'
+    out += ' size    | finished  | per     | speed   | average | spend   | eta     \n'
+    out += '---------+-----------+---------+---------+---------+---------+---------\n'
     sys.stdout.write(out)
 
 
@@ -308,14 +307,19 @@ def log_progress(info: UploadInfo):
     fin = human_size(info.finished)
     per = '%.1f%%' % (info.finished / info.size * 100)
     spe = '%s/s' % human_size(info.speed)
+    ave = '%s/s' % human_size(
+        int(info.finished / info.spend_time) if info.spend_time > 0 else 0)
+    spn = human_sec(int(info.spend_time))
     eta = human_sec(
         (info.size - info.finished) // info.speed) if info.speed > 0 else '---'
     eta = eta if info.finished != info.size else '0s'
-    progress = '\r {}{}| {}{}| {}{}| {}{}| {}{}'.format(
+    progress = '\r {}{}| {}{}| {}{}| {}{}| {}{}| {}{}| {}{}'.format(
         siz, ' ' * (8 - len(siz)),
         fin, ' ' * (10 - len(fin)),
         per, ' ' * (8 - len(per)),
         spe, ' ' * (8 - len(spe)),
+        ave, ' ' * (8 - len(ave)),
+        spn, ' ' * (8 - len(spn)),
         eta, ' ' * (8 - len(eta))
     )
     sys.stdout.write(progress)
