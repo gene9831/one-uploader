@@ -97,10 +97,10 @@ class UploadHelper:
 
         with output(initial_len=4) as out_lines:
             len_f_title = max(min(MAX_TITLE_LEN, len(info.filename)), 8)
-            out_lines[1] = ' filename%s ' % (' ' * (len_f_title - 8))
-            out_lines[1] += '|  size   |   per   |  speed  |   eta   '
-            out_lines[2] = '%s' % ('-' * (len_f_title + 2))
-            out_lines[2] += '+---------+---------+---------+---------'
+            out_lines[1] = ' filename%s ' % (' ' * (len_f_title - 8)) \
+                           + '|  size   |   per   |  speed  |   eta   '
+            out_lines[2] = '%s' % ('-' * (len_f_title + 2)) \
+                           + '+---------+---------+---------+---------'
 
             if info.size <= 4 * 1024 * 1024:
                 # 小于或等于4MB的文件直接上传
