@@ -6,11 +6,11 @@ import json
 import math
 import os
 import signal
-import sys
 import time
 from typing import Optional
 
 import requests
+from reprint import output
 
 import app_config
 from graph import drive_api
@@ -93,165 +93,179 @@ class UploadHelper:
         token = self.msal_auth.acquire_token_silent(
             self.msal_auth.oauth_settings.scopes, info.onedrive_account)
 
-        if info.size <= 4 * 1024 * 1024:
-            # 小于或等于4MB的文件直接上传
-            log_progress_tile(info)
-            log_progress(info)
-            start = time.time()
-            with open(info.local_file_path, 'rb') as f:
-                resp_json = drive_api.put_content(
-                    token['access_token'],
-                    info.onedrive_dir_path + info.filename,
-                    f.read()
-                ).json()
+        with output(initial_len=4) as out_lines:
+            out_lines[0] = 'File: %s' % info.local_file_path
+            out_lines[1] = ' size    | finished  | per     |' \
+                           ' speed   | average | spend   | eta     '
+            out_lines[2] = '---------+-----------+---------+' \
+                           '---------+---------+---------+---------'
 
-            if 'id' in resp_json.keys():
-                # 上传成功
-                info.spend_time = time.time() - start
-                info.speed = int(info.size / info.spend_time)
-                info.finish_time = utc_datetime_str()
-                info.status = 'finished'
-                info.finished = info.size
-                log_progress(info)
-                color_print.g('\n上传成功. 文件: %s' % info.filename)
-            else:
-                raise Exception(str(resp_json.get('error')))
-            return
+            if info.size <= 4 * 1024 * 1024:
+                # 小于或等于4MB的文件直接上传
+                out_lines[3] = progress_text(info)
+                start = time.time()
+                with open(info.local_file_path, 'rb') as f:
+                    resp_json = drive_api.put_content(
+                        token['access_token'],
+                        info.onedrive_dir_path + info.filename,
+                        f.read()
+                    ).json()
 
-        # CTRL-C信号处理
-        original_sigint_handler = signal.getsignal(signal.SIGINT)
-
-        def sigint_handler(signum, frame):
-            signal.signal(signal.SIGINT, original_sigint_handler)
-            self.stop_flag = True
-            color_print.y('\n接收到CTRL-C信号，正在停止上传并保存信息。再次输入CTRL-C立即停止')
-
-        signal.signal(signal.SIGINT, sigint_handler)
-        color_print.b('按CTRL-C可停止上传')
-
-        # 处理超过4MB的大文件
-
-        info_cache = 'upload-info-{}.json'.format(info.cid_hash)
-        info_cache_path = os.path.join(app_config.CACHE_DIR, info_cache)
-
-        if os.path.isfile(info_cache_path):
-            # 已存在上传缓存信息，说明上次上传未完成
-            info = read_upload_info(info_cache_path)
-        else:
-            # 首次保存上传信息
-            write_upload_info(info_cache_path, info)
-
-        log_progress_tile(info)
-        log_progress(info)
-
-        size_mb = app_config.UPLOAD_CHUNK_SIZE
-        chunk_size = 1024 * 1024 * size_mb
-
-        try:
-            if not info.upload_url:
-                # 创建上传会话
-                resp_json = drive_api.create_upload_session(
-                    token['access_token'],
-                    info.filename,
-                    info.onedrive_dir_path + info.filename
-                ).json()
-                upload_url = resp_json.get('uploadUrl')
-                if upload_url:
-                    info.upload_url = upload_url
-                    write_upload_info(info_cache_path, info)
+                if 'id' in resp_json.keys():
+                    # 上传成功
+                    info.spend_time = time.time() - start
+                    info.speed = int(info.size / info.spend_time)
+                    info.finish_time = utc_datetime_str()
+                    info.status = 'finished'
+                    info.finished = info.size
+                    out_lines[3] = progress_text(info)
+                    out_lines.append(
+                        color_print.gs('上传成功. 文件: %s' % info.filename))
                 else:
-                    # 创建上传会话失败
                     raise Exception(str(resp_json.get('error')))
+                return
+
+            # 处理超过4MB的大文件
+
+            info_cache = 'upload-info-{}.json'.format(info.cid_hash)
+            info_cache_path = os.path.join(app_config.CACHE_DIR, info_cache)
+
+            if os.path.isfile(info_cache_path):
+                # 已存在上传缓存信息，说明上次上传未完成
+                info = read_upload_info(info_cache_path)
             else:
-                resp_json = requests.get(info.upload_url).json()
+                # 首次保存上传信息
+                write_upload_info(info_cache_path, info)
 
-            if 'nextExpectedRanges' not in resp_json.keys():
-                # upload_url失效
-                raise Exception(str(resp_json.get('error')))
+            # CTRL-C信号处理
+            original_sigint_handler = signal.getsignal(signal.SIGINT)
 
-            info.status = 'running'
-            info.finished = int(
-                resp_json['nextExpectedRanges'][0].split('-')[0])
-            write_upload_info(info_cache_path, info)
+            def sigint_handler(signum, frame):
+                info.status = 'stopped'
+                info.speed = 0
+                write_upload_info(info_cache_path, info)
 
-            # 文件大小小于 chunk_size
-            if info.size < chunk_size:
-                chunk_size = math.floor(info.size / (1024 * 10)) * 1024 * 10
+                signal.signal(signal.SIGINT, original_sigint_handler)
 
-            with open(info.local_file_path, 'rb') as f:
-                f.seek(info.finished, 0)
-                upload_session = requests.Session()
+                self.stop_flag = True
+                out_lines.append(
+                    color_print.ys('接收到CTRL-C信号，正在停止上传并保存信息。再次输入CTRL-C强制停止'))
 
-                while True:
-                    start = time.time()
+            signal.signal(signal.SIGINT, sigint_handler)
 
-                    chunk_start = f.tell()
-                    chunk_end = chunk_start + chunk_size - 1
+            out_lines[3] = progress_text(info)
+            out_lines.append(color_print.bs('按CTRL-C可停止上传'))
 
-                    if chunk_end >= info.size:
-                        left = info.size - chunk_start
-                        # 将10KB作为上传最小单位（官方API最小是320bytes）
-                        # 找一个大于left的值，使它为10KB的正整数倍，且最小
-                        chunk_size = math.ceil(left / (1024 * 10)) * 1024 * 10
-                        # 从文件末尾往前 chunk_size 个字节
-                        chunk_start = f.seek(-chunk_size, 2)
-                        chunk_end = info.size - 1
+            size_mb = app_config.UPLOAD_CHUNK_SIZE
+            chunk_size = 1024 * 1024 * size_mb
 
-                    headers = {
-                        'Content-Length': str(chunk_size),
-                        'Content-Range': 'bytes {}-{}/{}'.format(
-                            chunk_start, chunk_end, info.size)
-                    }
-                    data = f.read(chunk_size)
-
-                    resp = None
-                    retry_cnt = 1
-                    while resp is None:
-                        try:
-                            resp = upload_session.put(info.upload_url,
-                                                      headers=headers,
-                                                      data=data)
-                            if resp.status_code >= 500:
-                                # OneDrive服务器错误，稍后继续尝试
-                                raise requests.exceptions.RequestException(
-                                    resp.text)
-                            elif resp.status_code >= 400:
-                                # 文件未找到，因为其他原因被删除
-                                raise Exception(str(resp.json().get('error')))
-                        except requests.exceptions.RequestException as e:
-                            resp = None
-                            color_print.y(str(e))
-                            delay = 2 ** retry_cnt
-                            delay = delay if delay <= 60 else 60
-                            color_print.y('第%d次重试，%ds后重试' % (retry_cnt, delay))
-                            time.sleep(delay)
-                            retry_cnt += 1
-
-                    spend_time = time.time() - start
-                    info.finished = chunk_end + 1
-                    info.speed = int(chunk_size / spend_time)
-                    info.spend_time += spend_time
-                    write_upload_info(info_cache_path, info)
-
-                    log_progress(info)
-
-                    resp_json = resp.json()
-                    if 'id' in resp_json.keys():
-                        # 上传完成，删除上传信息缓存
-                        os.remove(info_cache_path)
-                        color_print.g('\n上传成功. 文件: %s' % info.filename)
-                        return
-
-                    if self.stop_flag:
-                        # 停止上传
-                        info.status = 'stopped'
-                        info.speed = 0
+            try:
+                if not info.upload_url:
+                    # 创建上传会话
+                    resp_json = drive_api.create_upload_session(
+                        token['access_token'],
+                        info.filename,
+                        info.onedrive_dir_path + info.filename
+                    ).json()
+                    upload_url = resp_json.get('uploadUrl')
+                    if upload_url:
+                        info.upload_url = upload_url
                         write_upload_info(info_cache_path, info)
-                        color_print.y('\n上传停止. 文件: %s' % info.filename)
-                        return
-        except Exception as e:
-            os.remove(info_cache_path)
-            raise e
+                    else:
+                        # 创建上传会话失败
+                        raise Exception(str(resp_json.get('error')))
+                else:
+                    resp_json = requests.get(info.upload_url).json()
+
+                if 'nextExpectedRanges' not in resp_json.keys():
+                    # upload_url失效
+                    raise Exception(str(resp_json.get('error')))
+
+                info.status = 'running'
+                info.finished = int(
+                    resp_json['nextExpectedRanges'][0].split('-')[0])
+                write_upload_info(info_cache_path, info)
+
+                # 文件大小小于 chunk_size
+                if info.size < chunk_size:
+                    chunk_size = math.floor(info.size / (1024 * 10)) * 1024 * 10
+
+                with open(info.local_file_path, 'rb') as f:
+                    f.seek(info.finished, 0)
+                    upload_session = requests.Session()
+
+                    while True:
+                        start = time.time()
+
+                        chunk_start = f.tell()
+                        chunk_end = chunk_start + chunk_size - 1
+
+                        if chunk_end >= info.size:
+                            left = info.size - chunk_start
+                            # 将10KB作为上传最小单位（官方API最小是320bytes）
+                            # 找一个大于left的值，使它为10KB的正整数倍，且最小
+                            chunk_size = math.ceil(
+                                left / (1024 * 10)) * 1024 * 10
+                            # 从文件末尾往前 chunk_size 个字节
+                            chunk_start = f.seek(-chunk_size, 2)
+                            chunk_end = info.size - 1
+
+                        headers = {
+                            'Content-Length': str(chunk_size),
+                            'Content-Range': 'bytes {}-{}/{}'.format(
+                                chunk_start, chunk_end, info.size)
+                        }
+                        data = f.read(chunk_size)
+
+                        resp = None
+                        retry_cnt = 1
+                        while resp is None:
+                            try:
+                                resp = upload_session.put(info.upload_url,
+                                                          headers=headers,
+                                                          data=data)
+                                if resp.status_code >= 500:
+                                    # OneDrive服务器错误，稍后继续尝试
+                                    raise requests.exceptions.RequestException(
+                                        resp.text)
+                                elif resp.status_code >= 400:
+                                    # 文件未找到，因为其他原因被删除
+                                    raise Exception(
+                                        str(resp.json().get('error')))
+                            except requests.exceptions.RequestException as e:
+                                resp = None
+                                color_print.y(str(e))
+                                delay = 2 ** retry_cnt
+                                delay = delay if delay <= 60 else 60
+                                color_print.y(
+                                    '第%d次重试，%ds后重试' % (retry_cnt, delay))
+                                time.sleep(delay)
+                                retry_cnt += 1
+
+                        spend_time = time.time() - start
+                        info.finished = chunk_end + 1
+                        info.speed = int(chunk_size / spend_time)
+                        info.spend_time += spend_time
+                        write_upload_info(info_cache_path, info)
+
+                        out_lines[3] = progress_text(info)
+
+                        resp_json = resp.json()
+                        if 'id' in resp_json.keys():
+                            # 上传完成，删除上传信息缓存
+                            os.remove(info_cache_path)
+                            out_lines.append(
+                                color_print.gs('上传成功. 文件: %s' % info.filename))
+                            return
+
+                        if self.stop_flag:
+                            # 停止上传
+                            out_lines.append(
+                                color_print.ys('上传停止. 文件: %s' % info.filename))
+                            return
+            except Exception as e:
+                os.remove(info_cache_path)
+                raise e
 
 
 def read_upload_info(file: str, encoding: str = 'utf8'):
@@ -295,14 +309,7 @@ def cid_hash_file(path: str):
     return h.hexdigest()
 
 
-def log_progress_tile(info: UploadInfo):
-    out = 'filename: %s\n\n' % info.filename
-    out += ' size    | finished  | per     | speed   | average | spend   | eta     \n'
-    out += '---------+-----------+---------+---------+---------+---------+---------\n'
-    sys.stdout.write(out)
-
-
-def log_progress(info: UploadInfo):
+def progress_text(info: UploadInfo):
     siz = human_size(info.size)
     fin = human_size(info.finished)
     per = '%.1f%%' % (info.finished / info.size * 100)
@@ -313,7 +320,7 @@ def log_progress(info: UploadInfo):
     eta = human_sec(
         (info.size - info.finished) // info.speed) if info.speed > 0 else '---'
     eta = eta if info.finished != info.size else '0s'
-    progress = '\r {}{}| {}{}| {}{}| {}{}| {}{}| {}{}| {}{}'.format(
+    progress = ' {}{}| {}{}| {}{}| {}{}| {}{}| {}{}| {}{}'.format(
         siz, ' ' * (8 - len(siz)),
         fin, ' ' * (10 - len(fin)),
         per, ' ' * (8 - len(per)),
@@ -322,7 +329,7 @@ def log_progress(info: UploadInfo):
         spn, ' ' * (8 - len(spn)),
         eta, ' ' * (8 - len(eta))
     )
-    sys.stdout.write(progress)
+    return progress
 
 
 def human_size(n: int) -> str:
