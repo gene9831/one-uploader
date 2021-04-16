@@ -92,9 +92,9 @@ class UploadHelper:
         pass
 
     def _upload(self, info: UploadInfo):
-        print('Local    file: ' + info.local_file_path)
-        print('Onedrive  dir: ' + info.onedrive_dir_path)
-        print('Onedrive user: ' + info.onedrive_account.get('username'))
+        # print('Local    file: ' + info.local_file_path)
+        # print('Onedrive  dir: ' + info.onedrive_dir_path)
+        # print('Onedrive user: ' + info.onedrive_account.get('username'))
         token = self.msal_auth.acquire_token_silent(
             self.msal_auth.oauth_settings.scopes, info.onedrive_account)
 
@@ -153,7 +153,6 @@ def upload_large_file(access_token: str, info: UploadInfo):
         signal.signal(signal.SIGINT, original_sigint_handler)
 
         info.status = 'stopped'
-        info.speed = 0
         write_upload_info(info_cache_path, info)
 
         nonlocal stop_flag
