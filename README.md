@@ -16,7 +16,7 @@
 
 ### Step1
 
-编辑`.env`文件，填入以下信息。具体步骤可参考[这里](https://docs.microsoft.com/zh-cn/graph/tutorials/python?tutorial-step=2)
+编辑`.env`文件，填入以下信息。获取 `app_id` 和 `app_secret` 的具体步骤可参考[这里](https://docs.microsoft.com/zh-cn/graph/tutorials/python?tutorial-step=2)
 
 ```ini
 # .env
