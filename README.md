@@ -8,13 +8,15 @@
    ```bash
    git clone https://github.com/gene9831/one-uploader.git
    cd one-uploader
-   # 需要虚拟环境自行创建
+   # 需要虚拟环境请自行创建
    pip install -r requirements.txt
    ```
 
 ## 使用
 
-编辑`.env`文件
+### Step1
+
+编辑`.env`文件，填入以下信息。具体步骤可参考[这里](https://docs.microsoft.com/zh-cn/graph/tutorials/python?tutorial-step=2)
 
 ```ini
 # .env
@@ -23,32 +25,42 @@ APP_SECRET=you_app_secret
 REDIRECT_URL=http://localhost:5000/callback
 ```
 
-获取帮助
+### Step2
+
+添加用户，输入以下命令，按步骤操作即可
 
 ```bash
-$ python3 main.py -h
-usage: main.py [-h] {account,ac,upload,up} ...
+python account.py -a
+```
 
-Onedrive uploader
+其他用户操作使用 `-h` 或 `--help` 参数获取帮助
+
+### Step3
+
+上传文件，暂时只支持单个文件
+
+```bash
+# 上传文件帮助信息
+$ python upload.py -h
+usage: upload.py [-h] -f FILE -o ONE_DIR [-u USER]
+
+Onedrive file upload tool
 
 optional arguments:
   -h, --help            show this help message and exit
-
-subcommands:
-  {account,ac,upload,up}
-    account (ac)        account operations
-    upload (up)         upload operations
+  -f FILE, --file FILE  file to be uploaded
+  -o ONE_DIR, --one_dir ONE_DIR
+                        upload to this directory
+  -u USER, --user USER  specify Onedrive user, default the first one
 ```
 
-子指令获取帮助，例如 `account`
+例如
 
 ```bash
-$ python3 main.py ac -h
-usage: main.py account [-h] (-l | -a | -r)
-
-optional arguments:
-  -h, --help    show this help message and exit
-  -l, --list    list accounts
-  -a, --add     add account
-  -r, --remove  remove account
+$ python upload.py -f /local/file -o /Onedrive/directory -u username@mail.com
+ filename  |  size   |   per   |  speed  |   eta
+-----------+---------+---------+---------+---------
+ file      |  100.0M |   99.9% |  8.8M/s |  23m59s
 ```
+
+> 使用 `nohup` 和 `&` 可在后台运行
